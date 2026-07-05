@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>TXB-2D-Engine Demo - Bouncing Box</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0f0f1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+    #game {
+      border: 2px solid #e94560;
+      border-radius: 8px;
+      max-width: 100%;
+      max-height: 100vh;
+    }
+    .controls {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #888;
+      font-size: 12px;
+      text-align: center;
+    }
+    .controls span { color: #e94560; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="controls">
+    <span>WASD / Arrows</span> to move &nbsp;|&nbsp; <span>Click</span> to spawn boxes &nbsp;|&nbsp; <span>Space</span> for screen shake
+  </div>
+
+  <script src="../src/engine.js"></script>
+  <script src="../src/renderer.js"></script>
+  <script src="../src/input.js"></script>
+  <script src="../src/physics.js"></script>
+  <script src="../src/entity.js"></script>
+  <script>
+    // === TXB-2D-Engine Demo: Bouncing Box ===
+
+    const engine = new TXBEngine('game', {
+      width: 800,
+      height: 600,
+      backgroundColor: '#16213e',
+      showFps: true
+    });
+
+    const renderer = new TXBRenderer();
+    const input = new TXBInput();
+    const physics = new TXBPhysics({
+      gravity: 300,
+      friction: 0.995,
+      showColliders: false
+    });
+
+    engine
+      .addSystem(renderer)
+      .addSystem(input)
+      .addSystem(physics);
+
+    // ---- Player Entity ----
+    class Player extends TXBEntity {
+      constructor() {
+        super(400, 100);
+        this.w = 40;
+        this.h = 40;
+        this.color = '#e94560';
+        this.speed = 300;
+        this.jumpForce = -350;
+        this.onGround = false;
+      }
+
+      update(dt) {
+        // Movement
+        if (input.isKey('KeyA') || input.isKey('ArrowLeft')) this.vx = -this.speed;
+        else if (input.isKey('KeyD') || input.isKey('ArrowRight')) this.vx = this.speed;
+
+        // Jump
+        if ((input.isKeyPressed('Space') || input.isKeyPressed('KeyW') || input.isKeyPressed('ArrowUp')) && this.onGround) {
+          this.vy = this.jumpForce;
+          this.onGround = false;
+        }
+
+        // Screen shake
+        if (input.isKeyPressed('Space') && !this.onGround) {
+          renderer.shake(8, 0.2);
+        }
+
+        // Check if on ground (simple check)
+        this.onGround = this.y >= engine.height - this.h - 2;
+
+        super.update(dt);
+      }
+    }
+
+    // ---- Box Entity ----
+    class Box extends TXBEntity {
+      constructor(x, y) {
+        super(x, y);
+        this.w = 20 + Math.random() * 30;
+        this.h = this.w;
+        this.vx = (Math.random() - 0.5) * 400;
+        this.vy = -Math.random() * 500;
+        this.color = `hsl(${Math.random() * 360}, 70%, 60%)`;
+        this.rotationSpeed = (Math.random() - 0.5) * 5;
+        this.life = 5; // seconds
+      }
+
+      update(dt) {
+        this.rotation += this.rotationSpeed * dt;
+        this.life -= dt;
+        this.alpha = Math.max(0, this.life / 5);
+        if (this.life <= 0) {
+          engine.removeEntity(this);
+        }
+        super.update(dt);
+      }
+    }
+
+    // ---- Ground ----
+    class Ground extends TXBEntity {
+      constructor() {
+        super(0, engine.height - 40);
+        this.w = engine.width;
+        this.h = 40;
+        this.color = '#0f3460';
+        this.worldBounds = false;
+      }
+    }
+
+    // ---- Particle Effect ----
+    class Particle extends TXBEntity {
+      constructor(x, y) {
+        super(x, y);
+        this.w = 4;
+        this.h = 4;
+        this.vx = (Math.random() - 0.5) * 300;
+        this.vy = (Math.random() - 0.5) * 300;
+        this.color = '#ffd700';
+        this.life = 1 + Math.random();
+        this.useGravity = false;
+      }
+
+      update(dt) {
+        this.life -= dt;
+        this.alpha = Math.max(0, this.life);
+        if (this.life <= 0) engine.removeEntity(this);
+        super.update(dt);
+      }
+    }
+
+    // Spawn player, ground
+    engine.addEntity(new Ground());
+    const player = new Player();
+    engine.addEntity(player);
+
+    // Spawn some initial boxes
+    for (let i = 0; i < 5; i++) {
+      engine.addEntity(new Box(200 + i * 100, 50));
+    }
+
+    // Click to spawn boxes
+    engine.canvas.addEventListener('mousedown', (e) => {
+      const rect = engine.canvas.getBoundingClientRect();
+      const scaleX = engine.canvas.width / rect.width;
+      const scaleY = engine.canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      // Spawn particle burst
+      for (let i = 0; i < 8; i++) {
+        engine.addEntity(new Particle(x, y));
+      }
+
+      engine.addEntity(new Box(x, y));
+    });
+
+    // Touch support for spawning
+    engine.canvas.addEventListener('touchstart', (e) => {
+      const rect = engine.canvas.getBoundingClientRect();
+      const scaleX = engine.canvas.width / rect.width;
+      const scaleY = engine.canvas.height / rect.height;
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) * scaleX;
+      const y = (touch.clientY - rect.top) * scaleY;
+      engine.addEntity(new Box(x, y));
+    }, { passive: true });
+
+    // Start!
+    engine.start();
+  </script>
+</body>
+</html>
